@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <omp.h>
 
 #define NUM 32767                                             // Elementanzahl
 
@@ -15,6 +16,19 @@ void swap(float *v, int i, int j)
 
 // ---------------------------------------------------------------------------
 // Serielle Version von Quicksort (Wirth) 
+
+bool isSorted(float* v, int start, int end)
+{
+    float prev = 0.f;
+
+    for (int i = start; i <= end; ++i)
+    {
+        if (v[i] < prev) return false;
+        prev = v[i];
+    }
+
+    return true;
+}
 
 void quicksort(float *v, int start, int end) 
 {
@@ -39,28 +53,160 @@ void quicksort(float *v, int start, int end)
        quicksort(v, i, end);                       // Rechtes Segment zerlegen
 }
 
+void quicksortParallelSections(float* v, int start, int end)
+{
+    int i = start, j = end;
+    float pivot;
+
+    pivot = v[(start + end) / 2];                         // mittleres Element
+    do {
+        while (v[i] < pivot)
+            i++;
+        while (pivot < v[j])
+            j--;
+        if (i <= j) {               // wenn sich beide Indizes nicht beruehren
+            swap(v, i, j);
+            i++;
+            j--;
+        }
+    } while (i <= j);
+
+    #pragma omp parallel num_threads(4)
+    {
+        #pragma omp sections nowait
+        {
+            #pragma omp section
+            if (start < j)                                        // Teile und herrsche
+                quicksort(v, start, j);                      // Linkes Segment zerlegen
+            #pragma omp section
+            if (i < end)
+                quicksort(v, i, end);                       // Rechtes Segment zerlegen
+        }
+    }
+}
+
+void quicksortParallelTask(float* v, int start, int end)
+{
+    int i = start, j = end;
+    float pivot;
+
+    pivot = v[(start + end) / 2];                         // mittleres Element
+    do {
+        while (v[i] < pivot)
+            i++;
+        while (pivot < v[j])
+            j--;
+        if (i <= j) {               // wenn sich beide Indizes nicht beruehren
+            swap(v, i, j);
+            i++;
+            j--;
+        }
+    } while (i <= j);
+
+    #pragma omp parallel num_threads(4)
+    {
+        #pragma omp task
+        if (start < j)                                        // Teile und herrsche
+            quicksort(v, start, j);                      // Linkes Segment zerlegen
+        #pragma omp task
+        if (i < end)
+            quicksort(v, i, end);
+        #pragma omp taskwait
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Hauptprogramm
 
 int main(int argc, char *argv[])
 {
-    float *v;                                                         // Feld                               
-    int iter;                                                // Wiederholungen             
+    //Sequential
+    {
+        double start, end;
+        start = omp_get_wtime();
 
-    if (argc != 2) {                                      // Benutzungshinweis
-        printf ("Vector sorting\nUsage: %s <NumIter>\n", argv[0]); 
+        float* v;                                                         // Feld                               
+        int iter;                                                // Wiederholungen             
+
+        if (argc != 2) {                                      // Benutzungshinweis
+            printf("Vector sorting\nUsage: %s <NumIter>\n", argv[0]);
+            return 0;
+        }
+        iter = atoi(argv[1]);
+        v = (float*)calloc(NUM, sizeof(float));        // Speicher reservieren
+
+        printf("Perform vector sorting %d times...\n", iter);
+        for (int i = 0; i < iter; i++) {               // Wiederhole das Sortieren
+            for (int j = 0; j < NUM; j++)      // Mit Zufallszahlen initialisieren
+                v[j] = (float)rand();
+
+            quicksort(v, 0, NUM - 1);                                  // Sortierung
+            if (!isSorted(v)) printf("\n Failed: Not Sorted. \n"); //hurts runtime, but tests validity
+        }
+
+        end = omp_get_wtime();
+
+        printf("\nDone: %f. seconds taken.\n", end - start);
         return 0;
     }
-    iter = atoi(argv[1]);                               
-    v = (float *) calloc(NUM, sizeof(float));        // Speicher reservieren
 
-    printf("Perform vector sorting %d times...\n", iter);
-    for (int i = 0; i < iter; i++) {               // Wiederhole das Sortieren
-        for (int j = 0; j < NUM; j++)      // Mit Zufallszahlen initialisieren
-            v[j] = (float)rand();
+    //Parallel 1 : Sections
+    {
+        double start, end;
+        start = omp_get_wtime();
 
-        quicksort(v, 0, NUM-1);                                  // Sortierung
+        float* v;                                                         // Feld                               
+        int iter;                                                // Wiederholungen             
+
+        if (argc != 2) {                                      // Benutzungshinweis
+            printf("Vector sorting\nUsage: %s <NumIter>\n", argv[0]);
+            return 0;
+        }
+        iter = atoi(argv[1]);
+        v = (float*)calloc(NUM, sizeof(float));        // Speicher reservieren
+
+        printf("Perform vector sorting %d times...\n", iter);
+        for (int i = 0; i < iter; i++) {               // Wiederhole das Sortieren
+            for (int j = 0; j < NUM; j++)      // Mit Zufallszahlen initialisieren
+                v[j] = (float)rand();
+
+            quicksortParallelSections(v, 0, NUM - 1);                                  // Sortierung
+            if (!isSorted(v)) printf("\n Failed: Not Sorted. \n"); //hurts runtime, but tests validity
+        }
+
+        end = omp_get_wtime();
+
+        printf("\nDone: %f. seconds taken.\n", end - start);
+        return 0;
     }
-    printf ("\nDone.\n");
-    return 0;
+
+    //Parallel 2 : Task
+    {
+        double start, end;
+        start = omp_get_wtime();
+
+        float* v;                                                         // Feld                               
+        int iter;                                                // Wiederholungen             
+
+        if (argc != 2) {                                      // Benutzungshinweis
+            printf("Vector sorting\nUsage: %s <NumIter>\n", argv[0]);
+            return 0;
+        }
+        iter = atoi(argv[1]);
+        v = (float*)calloc(NUM, sizeof(float));        // Speicher reservieren
+
+        printf("Perform vector sorting %d times...\n", iter);
+        for (int i = 0; i < iter; i++) {               // Wiederhole das Sortieren
+            for (int j = 0; j < NUM; j++)      // Mit Zufallszahlen initialisieren
+                v[j] = (float)rand();
+
+            quicksortParallelTask(v, 0, NUM - 1);                                  // Sortierung
+            if (!isSorted(v)) printf("\n Failed: Not Sorted. \n"); //hurts runtime, but tests validity
+        }
+
+        end = omp_get_wtime();
+
+        printf("\nDone: %f. seconds taken.\n", end - start);
+        return 0;
+    }
 }

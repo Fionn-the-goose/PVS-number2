@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <omp.h>
 
 #define NUM 32767                                             // Elementanzahl
 
@@ -33,10 +34,15 @@ void quicksort(float *v, int start, int end)
             j--;
         }
    } while (i <= j);
-   if (start < j)                                        // Teile und herrsche
-       quicksort(v, start, j);                      // Linkes Segment zerlegen
-   if (i < end)
-       quicksort(v, i, end);                       // Rechtes Segment zerlegen
+	#pragma omp sections nowait
+	{
+		#pragma omp section
+   		if (start < j)                                        // Teile und herrsche
+       			quicksort(v, start, j);                      // Linkes Segment zerlegen
+		#pragma omp section
+   		if (i < end)
+       			quicksort(v, i, end);                       // Rechtes Segment zerlegen
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -44,6 +50,9 @@ void quicksort(float *v, int start, int end)
 
 int main(int argc, char *argv[])
 {
+double start, end;
+start = omp_get_wtime();
+
     float *v;                                                         // Feld                               
     int iter;                                                // Wiederholungen             
 
@@ -59,8 +68,14 @@ int main(int argc, char *argv[])
         for (int j = 0; j < NUM; j++)      // Mit Zufallszahlen initialisieren
             v[j] = (float)rand();
 
-        quicksort(v, 0, NUM-1);                                  // Sortierung
+        #pragma omp parallel num_threads(4)
+        {
+            quicksort(v, 0, NUM-1);                                  // Sortierung
+        }
     }
-    printf ("\nDone.\n");
+
+end = omp_get_wtime();
+
+    printf ("\nDone: %f. seconds taken.\n", end - start);
     return 0;
 }
